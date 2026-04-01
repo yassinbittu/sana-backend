@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Environments
+.env
+.venv
+venv/
+env/
+ENV/
+
+# Flask / SQLAlchemy
+instance/
+*.db
+*.sqlite3
+
+# Uploads (don't commit user files)
+app/uploads/
+
+# Migrations (commit these if you want)
+# migrations/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
