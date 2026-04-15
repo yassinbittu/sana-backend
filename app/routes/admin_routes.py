@@ -13,6 +13,42 @@ def dashboard():
     ---
     tags:
       - Admin
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Dashboard stats
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            data:
+              type: object
+              properties:
+                total_users:
+                  type: integer
+                  example: 150
+                total_products:
+                  type: integer
+                  example: 50
+                total_orders:
+                  type: integer
+                  example: 200
+                recent_orders:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      order_number:
+                        type: string
+                        example: "ORD-123456"
+                      status:
+                        type: string
+                        example: "pending"
+      401:
+        description: Unauthorized
     """
     return admin_controller.get_dashboard_stats()
 
@@ -24,6 +60,48 @@ def users():
     ---
     tags:
       - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: page
+        type: integer
+        example: 1
+      - in: query
+        name: limit
+        type: integer
+        example: 10
+    responses:
+      200:
+        description: List of users
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    example: 1
+                  username:
+                    type: string
+                    example: "johndoe"
+                  email:
+                    type: string
+                    example: "john@example.com"
+                  role:
+                    type: string
+                    example: "user"
+                  is_active:
+                    type: boolean
+                    example: true
+      401:
+        description: Unauthorized
     """
     return admin_controller.get_all_users()
 
@@ -35,6 +113,45 @@ def user(user_id):
     ---
     tags:
       - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: user_id
+        type: integer
+        required: true
+        example: 1
+    responses:
+      200:
+        description: User details
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            data:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 1
+                username:
+                  type: string
+                  example: "johndoe"
+                email:
+                  type: string
+                  example: "john@example.com"
+                role:
+                  type: string
+                  example: "user"
+                is_active:
+                  type: boolean
+                  example: true
+      401:
+        description: Unauthorized
+      404:
+        description: User not found
     """
     return admin_controller.get_user(user_id)
 
@@ -46,6 +163,30 @@ def toggle(user_id):
     ---
     tags:
       - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: user_id
+        type: integer
+        required: true
+        example: 1
+    responses:
+      200:
+        description: User status toggled
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "User status updated successfully"
+      401:
+        description: Unauthorized
+      404:
+        description: User not found
     """
     return admin_controller.toggle_user_status(user_id)
 
@@ -57,6 +198,30 @@ def delete_user(user_id):
     ---
     tags:
       - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: user_id
+        type: integer
+        required: true
+        example: 1
+    responses:
+      200:
+        description: User deleted
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "User deleted successfully"
+      401:
+        description: Unauthorized
+      404:
+        description: User not found
     """
     return admin_controller.delete_user(user_id)
 

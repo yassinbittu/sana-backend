@@ -21,7 +21,7 @@ class BaseConfig:
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(seconds=int(os.getenv("JWT_REFRESH_TOKEN_EXPIRES", 2592000)))
     JWT_TOKEN_LOCATION = ["headers"]
     JWT_HEADER_NAME = "Authorization"
-    JWT_HEADER_TYPE = "Bearer"
+    JWT_HEADER_TYPE = ""  # Empty string to accept token without Bearer prefix
 
     # ── File Upload ───────────────────────────────────────
     UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "app/uploads")
@@ -39,7 +39,16 @@ class BaseConfig:
     # ── Admin ─────────────────────────────────────────────
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
-    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@sana.com")
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "iamyxn12@gmail.com")
+
+    # ── Email ─────────────────────────────────────────────
+    MAIL_SERVER = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.getenv("MAIL_PORT", 587))
+    MAIL_USE_TLS = os.getenv("MAIL_USE_TLS", "True").lower() == "true"
+    MAIL_USE_SSL = os.getenv("MAIL_USE_SSL", "False").lower() == "true"
+    MAIL_USERNAME = os.getenv("MAIL_USERNAME", "iamyxn12@gmail.com")
+    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD", "")
+    MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER", "iamyxn12@gmail.com")
 
 
 class DevelopmentConfig(BaseConfig):

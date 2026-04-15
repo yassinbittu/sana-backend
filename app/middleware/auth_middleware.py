@@ -10,7 +10,7 @@ def jwt_required_custom(fn):
     def wrapper(*args, **kwargs):
         verify_jwt_in_request()
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = User.query.get(int(user_id))  # Convert string back to int
         if not user or not user.is_active:
             return jsonify({"success": False, "message": "User not found or inactive"}), 401
         return fn(*args, **kwargs)
@@ -23,7 +23,7 @@ def admin_required(fn):
     def wrapper(*args, **kwargs):
         verify_jwt_in_request()
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = User.query.get(int(user_id))  # Convert string back to int
         if not user or not user.is_active:
             return jsonify({"success": False, "message": "User not found or inactive"}), 401
         if not user.is_admin():

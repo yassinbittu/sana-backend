@@ -3,6 +3,7 @@ from flask_jwt_extended import get_jwt_identity
 from app import db
 from app.models.order import Order, OrderItem
 from app.models.product import Product
+from app.models.cart import Cart
 from app.utils.helpers import (
     success_response, error_response, paginated_response,
     validate_required, generate_order_number, validate_phone
@@ -75,6 +76,84 @@ def create_order():
 
     db.session.flush()
     order.calculate_total()
+    db.session.commit()
+
+    # ── Notify admin via WhatsApp ─────────────────────────
+    wa_result = WhatsAppService.notify_admin_new_order(order)
+    if wa_result.get("success"):
+        order.wa_notified   = True
+        order.wa_message_id = wa_result.get("message_id")
+        db.session.commit()
+
+    return success_response(
+        data={"order": order.to_dict()},
+        message="Order placed successfully! We'll contact you shortly.",
+        status_code=201,
+    )
+
+
+def create_order_from_cart():
+    """
+    Create an order from cart items.
+    Requires user authentication and cart items.
+    """
+    user_id = get_jwt_identity()
+    if isinstance(user_id, str):
+        user_id = int(user_id)
+
+    data = request.get_json(silent=True) or {}
+
+    missing = validate_required(data, ["customer_name", "customer_phone"])
+    if missing:
+        return error_response(f"Missing required fields: {', '.join(missing)}")
+
+    if not validate_phone(data["customer_phone"]):
+        return error_response("Invalid phone number")
+
+    # ── Get user's cart items ─────────────────────────────
+    cart_items = Cart.query.filter_by(user_id=user_id).all()
+    if not cart_items:
+        return error_response("Cart is empty", 400)
+
+    # ── Validate cart items ──────────────────────────────
+    for cart_item in cart_items:
+        if not cart_item.product.is_active:
+            return error_response(f"Product '{cart_item.product.name}' is no longer available", 400)
+        if not cart_item.product.in_stock:
+            return error_response(f"Product '{cart_item.product.name}' is out of stock", 400)
+
+    # ── Create order ─────────────────────────────────────
+    order = Order(
+        order_number=generate_order_number(),
+        user_id=user_id,
+        customer_name=data["customer_name"].strip(),
+        customer_phone=data["customer_phone"].strip(),
+        customer_email=data.get("customer_email"),
+        customer_address=data.get("customer_address"),
+        notes=data.get("notes"),
+        source="cart",
+    )
+    db.session.add(order)
+    db.session.flush()   # get order.id before committing
+
+    # ── Convert cart items to order items ────────────────
+    for cart_item in cart_items:
+        order_item = OrderItem(
+            order_id=order.id,
+            product_id=cart_item.product.id,
+            product_name=cart_item.product.name,
+            product_image=cart_item.product.image_url,
+            unit_price=cart_item.product.price,
+            quantity=cart_item.quantity,
+        )
+        db.session.add(order_item)
+
+    db.session.flush()
+    order.calculate_total()
+    db.session.commit()
+
+    # ── Clear the cart ───────────────────────────────────
+    Cart.query.filter_by(user_id=user_id).delete()
     db.session.commit()
 
     # ── Notify admin via WhatsApp ─────────────────────────
