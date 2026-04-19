@@ -61,54 +61,7 @@ def register():
 @auth_bp.post("/login")
 def login():
     """
-    Login user
-    ---
-    tags:
-      - Auth
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            email:
-              type: string
-              example: "john@example.com"
-            password:
-              type: string
-              example: "password123"
-    responses:
-      200:
-        description: Login successful
-        schema:
-          type: object
-          properties:
-            success:
-              type: boolean
-              example: true
-            message:
-              type: string
-              example: "Login successful"
-            data:
-              type: object
-              properties:
-                access_token:
-                  type: string
-                  example: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
-                refresh_token:
-                  type: string
-                  example: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
-      401:
-        description: Invalid credentials
-    """
-    return auth_controller.login()
-
-
-@auth_bp.post("/admin/login")
-def admin_login():
-    """
-    Admin login
+    Login user or admin
     ---
     tags:
       - Auth
@@ -127,7 +80,7 @@ def admin_login():
               example: "admin123"
     responses:
       200:
-        description: Admin login successful
+        description: Login successful
         schema:
           type: object
           properties:
@@ -136,7 +89,7 @@ def admin_login():
               example: true
             message:
               type: string
-              example: "Admin login successful"
+              example: "Login successful"
             data:
               type: object
               properties:
@@ -148,25 +101,26 @@ def admin_login():
                       example: 1
                     username:
                       type: string
-                      example: "admin"
+                      example: "johndoe"
                     email:
                       type: string
-                      example: "iamyxn12@gmail.com"
+                      example: "john@example.com"
                     role:
                       type: string
-                      example: "admin"
+                      example: "customer"
+                    is_active:
+                      type: boolean
+                      example: true
                 access_token:
                   type: string
                   example: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
                 refresh_token:
                   type: string
                   example: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
-      400:
-        description: Bad request
       401:
-        description: Invalid admin credentials
+        description: Invalid credentials
     """
-    return auth_controller.admin_login()
+    return auth_controller.login()
 
 
 @auth_bp.post("/refresh")

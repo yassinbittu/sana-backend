@@ -1,3 +1,5 @@
+import json
+from urllib.parse import parse_qsl
 from flask import request
 from app import db
 from app.models.product import Product
@@ -6,6 +8,59 @@ from app.utils.helpers import (
     validate_required, save_uploaded_file, delete_file
 )
 
+
+def _parse_request_data():
+    """Normalize incoming request data for JSON, form, multipart, and urlencoded bodies."""
+
+    # ✅ Handle multipart (file upload)
+    if request.content_type and "multipart" in request.content_type:
+        data = request.form.to_dict()
+
+        # Merge JSON if sent inside form-data
+        if request.form.get("data"):
+            try:
+                json_data = json.loads(request.form.get("data"))
+                data.update(json_data)
+            except:
+                pass
+
+        return data, request.files.get("image")
+
+    # ✅ Handle JSON
+    file = request.files.get("image") if request.files else None
+
+    data = request.get_json(silent=True)
+    if data is None:
+        data = request.get_json(force=True, silent=True)
+    if data is None:
+        data = {}
+
+    # fallback to form
+    if not data and request.form:
+        data = request.form.to_dict()
+
+    # fallback to query params
+    if not data and request.values:
+        data = request.values.to_dict(flat=True)
+
+    # fallback raw parsing
+    if not data and request.data:
+        raw = request.data.decode("utf-8", errors="ignore").strip()
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    data = parsed
+            except:
+                if "=" in raw:
+                    data = dict(parse_qsl(raw))
+                else:
+                    data = {}
+
+    if not isinstance(data, dict):
+        data = {}
+
+    return data, file
 
 def get_all_products():
     page     = request.args.get("page",     1,   type=int)
@@ -61,17 +116,12 @@ def get_product(product_id: int):
 
 
 def create_product():
-    # Support both JSON and multipart/form-data (with image)
-    if request.content_type and "multipart" in request.content_type:
-        data = request.form.to_dict()
-        file = request.files.get("image")
-    else:
-        data = request.get_json(silent=True) or {}
-        file = None
-
+    data, file = _parse_request_data()
     missing = validate_required(data, ["name", "price"])
     if missing:
-        return error_response(f"Missing required fields: {', '.join(missing)}")
+        return error_response(
+            f"Missing required fields: {', '.join(missing)}"
+        )
 
     try:
         price = float(data["price"])
@@ -130,12 +180,7 @@ def update_product(product_id: int):
     if not product:
         return error_response("Product not found", 404)
 
-    if request.content_type and "multipart" in request.content_type:
-        data = request.form.to_dict()
-        file = request.files.get("image")
-    else:
-        data = request.get_json(silent=True) or {}
-        file = None
+    data, file = _parse_request_data()
 
     # ── Apply updates ─────────────────────────────────────
     if "name"        in data: product.name        = data["name"].strip()

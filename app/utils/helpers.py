@@ -97,5 +97,20 @@ def validate_phone(phone: str) -> bool:
 
 
 def validate_required(data: dict, fields: list) -> list:
-    """Return list of missing field names."""
-    return [f for f in fields if not data.get(f)]
+    """Return list of missing field names.
+
+    Treat fields as missing only when they are not present, None, or empty strings.
+    This avoids rejecting valid falsey values such as 0 or False.
+    """
+    missing = []
+    for field in fields:
+        if field not in data:
+            missing.append(field)
+            continue
+        value = data[field]
+        if value is None:
+            missing.append(field)
+            continue
+        if isinstance(value, str) and value.strip() == "":
+            missing.append(field)
+    return missing

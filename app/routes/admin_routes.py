@@ -1,9 +1,26 @@
-from flask import Blueprint
+from flask import Blueprint, jsonify
+from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
 from app.controllers import admin_controller, product_controller, order_controller
-from app.middleware.auth_middleware import admin_required
+from app.models.user import User
 
 admin_bp = Blueprint("admin", __name__)
-admin_bp.before_request(admin_required)
+
+
+def check_admin():
+    """Check if the current user is an admin."""
+    try:
+        verify_jwt_in_request()
+        user_id = get_jwt_identity()
+        user = User.query.get(int(user_id))
+        if not user or not user.is_active:
+            return jsonify({"success": False, "message": "User not found or inactive"}), 401
+        if not user.is_admin():
+            return jsonify({"success": False, "message": "Admin access required"}), 403
+    except Exception as e:
+        return jsonify({"success": False, "message": "Authentication required"}), 401
+
+
+admin_bp.before_request(check_admin)
 
 
 @admin_bp.get("/dashboard")

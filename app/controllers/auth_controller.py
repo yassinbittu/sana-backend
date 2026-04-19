@@ -83,30 +83,6 @@ def login():
     )
 
 
-def admin_login():
-    data = request.get_json(silent=True) or {}
-
-    missing = validate_required(data, ["email", "password"])
-    if missing:
-        return error_response(f"Missing fields: {', '.join(missing)}")
-
-    user = User.query.filter_by(email=data["email"]).first()
-    if not user or not user.check_password(data["password"]) or not user.is_admin():
-        return error_response("Invalid admin credentials", 401)
-
-    access_token  = create_access_token(identity=str(user.id))
-    refresh_token = create_refresh_token(identity=str(user.id))
-
-    return success_response(
-        data={
-            "user":          user.to_dict(),
-            "access_token":  access_token,
-            "refresh_token": refresh_token,
-        },
-        message="Admin login successful",
-    )
-
-
 @jwt_required(refresh=True)
 def refresh_token():
     user_id = get_jwt_identity()
