@@ -144,9 +144,13 @@ def create_app(config_class=None):
     mail.init_app(app)
 
     # CORS
+    allowed_origins = [origin.strip() for origin in app.config["FRONTEND_URL"].split(",") if origin.strip()]
+    if "http://localhost:5173" not in allowed_origins:
+        allowed_origins.append("http://localhost:5173")
+
     CORS(app, resources={
         r"/api/*": {
-            "origins": [app.config["FRONTEND_URL"], "http://localhost:5173"],
+            "origins": allowed_origins,
             "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
             "supports_credentials": True,
