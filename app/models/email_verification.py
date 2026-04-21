@@ -19,6 +19,8 @@ class EmailVerification(db.Model):
 
     @classmethod
     def create_verification(cls, email):
+        # Delete any existing verification for this email
+        cls.query.filter_by(email=email).delete()
         otp = cls.generate_otp()
         expires_at = datetime.utcnow() + timedelta(minutes=10)  # OTP valid for 10 minutes
         verification = cls(email=email, otp=otp, expires_at=expires_at)
