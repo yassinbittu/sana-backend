@@ -143,6 +143,11 @@ def create_app(config_class=None):
     bcrypt.init_app(app)
     mail.init_app(app)
 
+    with app.app_context():
+        from app.services.admin_bootstrap import ensure_admin_user
+
+        ensure_admin_user(app)
+
     # CORS
     allowed_origins = [origin.strip() for origin in app.config["FRONTEND_URL"].split(",") if origin.strip()]
     if "http://localhost:5173" not in allowed_origins:
