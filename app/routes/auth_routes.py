@@ -208,6 +208,9 @@ def verify_otp():
         required: true
         schema:
           type: object
+          required:
+            - email
+            - otp
           properties:
             email:
               type: string
@@ -215,15 +218,15 @@ def verify_otp():
             otp:
               type: string
               example: "123456"
-            username:
-              type: string
-              example: "johndoe"
-            password:
-              type: string
-              example: "password123"
-            phone:
-              type: string
-              example: "+1234567890"
+            # username:
+            #   type: string
+            #   example: "johndoe"
+            # password:
+            #   type: string
+            #   example: "password123"
+            # phone:
+            #   type: string
+            #   example: "+1234567890"
     responses:
       201:
         description: Account created successfully
