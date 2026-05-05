@@ -61,7 +61,7 @@ WHATSAPP_API_TOKEN=your-whatsapp-token
 WHATSAPP_VERIFY_TOKEN=your-webhook-verify-token
 
 # ── CORS ─────────────────────────────────────────────────
-FRONTEND_URL=https://sanasarees-olive.vercel.app,https://sanasarees-j4gfqq9c3-yassinbittus-projects.vercel.app,http://localhost:5173
+FRONTEND_URL=https://www.sanasarees.in,https://sanasarees.in,https://sanasarees-olive.vercel.app,https://sanasarees-j4gfqq9c3-yassinbittus-projects.vercel.app,http://localhost:5173
 """
 
 print(production_env)
