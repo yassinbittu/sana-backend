@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -126,7 +127,19 @@ def create_app(config_class=None):
 
     app.config.from_object(config_class)
 
-    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    # ───────── Logging ─────────
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    # Set specific loggers
+    logging.getLogger('app.controllers.auth_controller').setLevel(logging.DEBUG)
+    logging.getLogger('flask_mail').setLevel(logging.DEBUG)
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+    
+    app.logger.info("🚀 Flask app initializing...")
+    app.logger.info(f"📍 Environment: {os.getenv('FLASK_ENV', 'development')}")
+    app.logger.info(f"🐛 Debug mode: {app.debug}")
 
     # Ensure DATABASE_URL is set
     if not app.config.get('SQLALCHEMY_DATABASE_URI'):

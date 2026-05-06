@@ -1,10 +1,14 @@
-from flask import request, jsonify
+import logging
+import traceback
+import sys
+from flask import request, jsonify, current_app
 from flask_jwt_extended import (
     create_access_token, create_refresh_token,
     get_jwt_identity, jwt_required
 )
 from flask_mail import Message
 from flask_bcrypt import Bcrypt
+from sqlalchemy.exc import IntegrityError, OperationalError
 from app import db, mail
 from app.models.user import User
 from app.models.email_verification import EmailVerification
@@ -12,36 +16,158 @@ from app.utils.helpers import success_response, error_response, validate_require
 
 bcrypt = Bcrypt()
 
+# ── Configure logging ──────────────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
+
 
 def register():
-    data = request.get_json(silent=True) or {}
-
-    # ── Validate required fields ──────────────────────────
-    missing = validate_required(data, ["username", "email", "password"])
-    if missing:
-        return error_response(f"Missing fields: {', '.join(missing)}")
-
-    username = data["username"].strip()
-    email    = data["email"].strip().lower()
-    password = data["password"]
-    phone    = data.get("phone", "")
-
-    if len(password) < 6:
-        return error_response("Password must be at least 6 characters")
-
-    if User.query.filter_by(email=email).first():
-        return error_response("Email is already registered", 409)
-
-    if User.query.filter_by(username=username).first():
-        return error_response("Username is already taken", 409)
-
-    # ── Hash password and create email verification ───────
-    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-    otp = EmailVerification.create_verification(email, username, hashed_password, phone)
-
-    # ── Send OTP email ────────────────────────────────────
+    """
+    Register new user with email verification via OTP.
+    
+    Flow:
+    1. Validate input
+    2. Check for duplicate email/username
+    3. Hash password
+    4. Create email verification record
+    5. Send OTP email
+    6. Return success or detailed error
+    """
     try:
-        html_body = f"""
+        # ────────────────────────────────────────────────────────────────────────
+        # STEP 1: Parse and validate request
+        # ────────────────────────────────────────────────────────────────────────
+        logger.info("📝 Signup request received")
+        
+        data = request.get_json(silent=True) or {}
+        logger.debug(f"Request data: username={data.get('username')}, email={data.get('email')}")
+
+        # Validate required fields
+        missing = validate_required(data, ["username", "email", "password"])
+        if missing:
+            logger.warning(f"❌ Missing required fields: {missing}")
+            return error_response(f"Missing required fields: {', '.join(missing)}", 400)
+
+        # Sanitize input
+        username = data.get("username", "").strip()
+        email = data.get("email", "").strip().lower()
+        password = data.get("password", "").strip()
+        phone = data.get("phone", "").strip()
+
+        # Validate input format
+        if not username or len(username) < 3:
+            logger.warning(f"❌ Invalid username length: {len(username)}")
+            return error_response("Username must be at least 3 characters long", 400)
+
+        if not email or "@" not in email:
+            logger.warning(f"❌ Invalid email format: {email}")
+            return error_response("Invalid email address", 400)
+
+        if not password or len(password) < 6:
+            logger.warning(f"❌ Invalid password length: {len(password)}")
+            return error_response("Password must be at least 6 characters long", 400)
+
+        logger.info(f"✅ Input validation passed for email={email}, username={username}")
+
+        # ────────────────────────────────────────────────────────────────────────
+        # STEP 2: Check database connection
+        # ────────────────────────────────────────────────────────────────────────
+        try:
+            logger.info("🔗 Testing database connection...")
+            db.session.execute(db.text("SELECT 1"))
+            logger.info("✅ Database connection OK")
+        except OperationalError as db_err:
+            logger.error(f"❌ DATABASE CONNECTION ERROR: {str(db_err)}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            return error_response("Database connection failed. Please try again later.", 503)
+        except Exception as db_err:
+            logger.error(f"❌ DATABASE ERROR (unexpected): {str(db_err)}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            return error_response("Database error. Please try again later.", 503)
+
+        # ────────────────────────────────────────────────────────────────────────
+        # STEP 3: Check for duplicate email
+        # ────────────────────────────────────────────────────────────────────────
+        logger.info(f"🔍 Checking for duplicate email: {email}")
+        try:
+            existing_user = User.query.filter_by(email=email).first()
+            if existing_user:
+                logger.warning(f"❌ Email already registered: {email}")
+                return error_response("This email is already registered. Please login or use a different email.", 409)
+            logger.info(f"✅ Email is available: {email}")
+        except Exception as query_err:
+            logger.error(f"❌ ERROR checking email: {str(query_err)}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            return error_response("Could not verify email. Please try again.", 500)
+
+        # ────────────────────────────────────────────────────────────────────────
+        # STEP 4: Check for duplicate username
+        # ────────────────────────────────────────────────────────────────────────
+        logger.info(f"🔍 Checking for duplicate username: {username}")
+        try:
+            existing_username = User.query.filter_by(username=username).first()
+            if existing_username:
+                logger.warning(f"❌ Username already taken: {username}")
+                return error_response("This username is already taken. Please choose a different one.", 409)
+            logger.info(f"✅ Username is available: {username}")
+        except Exception as query_err:
+            logger.error(f"❌ ERROR checking username: {str(query_err)}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            return error_response("Could not verify username. Please try again.", 500)
+
+        # ────────────────────────────────────────────────────────────────────────
+        # STEP 5: Hash password
+        # ────────────────────────────────────────────────────────────────────────
+        logger.info("🔐 Hashing password...")
+        try:
+            hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+            logger.info("✅ Password hashed successfully")
+        except Exception as hash_err:
+            logger.error(f"❌ PASSWORD HASHING ERROR: {str(hash_err)}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            return error_response("Failed to process password. Please try again.", 500)
+
+        # ────────────────────────────────────────────────────────────────────────
+        # STEP 6: Create email verification record
+        # ────────────────────────────────────────────────────────────────────────
+        logger.info(f"📧 Creating email verification for {email}")
+        try:
+            otp = EmailVerification.create_verification(
+                email=email,
+                username=username,
+                password=hashed_password,
+                phone=phone
+            )
+            logger.info(f"✅ Email verification created. OTP={otp}")
+        except IntegrityError as integrity_err:
+            logger.error(f"❌ DATABASE INTEGRITY ERROR: {str(integrity_err)}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            db.session.rollback()
+            # Could be a race condition (email just registered by another request)
+            return error_response("Email verification failed. This email might already be registered.", 409)
+        except Exception as verify_err:
+            logger.error(f"❌ EMAIL VERIFICATION ERROR: {str(verify_err)}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            db.session.rollback()
+            return error_response("Failed to create verification. Please try again.", 500)
+
+        # ────────────────────────────────────────────────────────────────────────
+        # STEP 7: Send OTP email
+        # ────────────────────────────────────────────────────────────────────────
+        logger.info(f"📬 Sending OTP email to {email}")
+        try:
+            # Check Mail configuration first
+            if not current_app.config.get('MAIL_SERVER'):
+                logger.error("❌ MAIL_SERVER not configured")
+                # Delete the verification record since we can't send email
+                EmailVerification.query.filter_by(email=email).delete()
+                db.session.commit()
+                return error_response("Email service is not configured. Please contact support.", 503)
+
+            logger.debug(f"Mail server: {current_app.config.get('MAIL_SERVER')}")
+            logger.debug(f"Mail port: {current_app.config.get('MAIL_PORT')}")
+            logger.debug(f"Mail TLS: {current_app.config.get('MAIL_USE_TLS')}")
+
+            html_body = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -111,21 +237,59 @@ def register():
         </body>
         </html>
         """
-        msg = Message(
-            subject="SANA Sarees - Email Verification",
-            recipients=[email],
-            html=html_body
-        )
-        mail.send(msg)
-    except Exception as e:
-        print(f"[EMAIL ERROR] Failed to send OTP to {email}: {str(e)}")
-        return error_response("Failed to send verification email. Please try again.", 500)
+            msg = Message(
+                subject="SANA Sarees - Email Verification",
+                recipients=[email],
+                html=html_body,
+                sender=current_app.config.get('MAIL_DEFAULT_SENDER')
+            )
+            mail.send(msg)
+            logger.info(f"✅ OTP email sent successfully to {email}")
 
-    return success_response(
-        data={"email": email},
-        message="Verification OTP sent to your email. Please check your inbox.",
-        status_code=200,
-    )
+        except Exception as mail_err:
+            logger.error(f"❌ EMAIL SENDING ERROR for {email}: {str(mail_err)}")
+            logger.error(f"Exception type: {type(mail_err).__name__}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            
+            # Clean up the verification record since we couldn't send email
+            try:
+                EmailVerification.query.filter_by(email=email).delete()
+                db.session.commit()
+                logger.info(f"🧹 Cleaned up verification record for {email}")
+            except Exception as cleanup_err:
+                logger.error(f"❌ Cleanup error: {str(cleanup_err)}")
+                db.session.rollback()
+            
+            # Check if it's a SMTP authentication error
+            if "SMTP" in str(mail_err) or "Authentication" in str(mail_err):
+                return error_response("Email service authentication failed. Please contact support.", 503)
+            
+            return error_response("Failed to send verification email. Please try again later.", 500)
+
+        # ────────────────────────────────────────────────────────────────────────
+        # SUCCESS: Return response
+        # ────────────────────────────────────────────────────────────────────────
+        logger.info(f"✅ SIGNUP SUCCESSFUL for {email}")
+        return success_response(
+            data={"email": email},
+            message="Verification OTP sent to your email. Please check your inbox and spam folder.",
+            status_code=200,
+        )
+
+    except Exception as unexpected_err:
+        # Catch any unexpected errors
+        logger.critical(f"❌ UNEXPECTED ERROR in register(): {str(unexpected_err)}")
+        logger.critical(f"Exception type: {type(unexpected_err).__name__}")
+        logger.critical(f"Full traceback:\n{traceback.format_exc()}")
+        
+        # Try to rollback any pending transactions
+        try:
+            db.session.rollback()
+        except:
+            pass
+        
+        # Return safe error message to user (don't expose internal details)
+        return error_response("An unexpected error occurred during signup. Please try again later.", 500)
 
 
 def login():
