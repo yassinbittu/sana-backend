@@ -409,7 +409,7 @@ def verify_otp():
         phone=verification.phone,
         role="customer",
     )
-    user.set_password(password)
+    user.password = password
     db.session.add(user)
     
     # Delete verification record
