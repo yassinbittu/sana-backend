@@ -16,12 +16,30 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("email_verifications", sa.Column("username", sa.String(length=80), nullable=True))
-    op.add_column("email_verifications", sa.Column("password", sa.String(length=256), nullable=True))
-    op.add_column("email_verifications", sa.Column("phone", sa.String(length=20), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {column["name"] for column in inspector.get_columns("email_verifications")}
+
+    if "username" not in existing_columns:
+        op.add_column("email_verifications", sa.Column("username", sa.String(length=80), nullable=True))
+
+    if "password" not in existing_columns:
+        op.add_column("email_verifications", sa.Column("password", sa.String(length=256), nullable=True))
+
+    if "phone" not in existing_columns:
+        op.add_column("email_verifications", sa.Column("phone", sa.String(length=20), nullable=True))
 
 
 def downgrade():
-    op.drop_column("email_verifications", "phone")
-    op.drop_column("email_verifications", "password")
-    op.drop_column("email_verifications", "username")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {column["name"] for column in inspector.get_columns("email_verifications")}
+
+    if "phone" in existing_columns:
+        op.drop_column("email_verifications", "phone")
+
+    if "password" in existing_columns:
+        op.drop_column("email_verifications", "password")
+
+    if "username" in existing_columns:
+        op.drop_column("email_verifications", "username")
