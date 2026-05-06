@@ -8,7 +8,8 @@ from flask_jwt_extended import (
 )
 from flask_mail import Message
 from flask_bcrypt import Bcrypt
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError, SQLAlchemyError
 from app import db, mail
 from app.models.user import User
 from app.models.email_verification import EmailVerification
@@ -20,7 +21,7 @@ bcrypt = Bcrypt()
 logger = logging.getLogger(__name__)
 
 
-def register():
+def _legacy_register_unused():
     """
     Register new user with email verification via OTP.
     
@@ -289,6 +290,227 @@ def register():
             pass
         
         # Return safe error message to user (don't expose internal details)
+        return error_response("An unexpected error occurred during signup. Please try again later.", 500)
+
+
+def register():
+    """Production-safe signup route: create OTP verification, send email, always return JSON."""
+    request_id = request.headers.get("X-Request-ID") or request.headers.get("X-Render-Request-Id") or "-"
+    email = None
+
+    try:
+        logger.info(
+            "Signup request received request_id=%s origin=%s remote_addr=%s content_type=%s",
+            request_id,
+            request.headers.get("Origin"),
+            request.headers.get("X-Forwarded-For", request.remote_addr),
+            request.content_type,
+        )
+
+        data = request.get_json(silent=True) or {}
+        logger.debug(
+            "Signup payload request_id=%s username=%s email=%s has_password=%s",
+            request_id,
+            data.get("username"),
+            data.get("email"),
+            bool(data.get("password")),
+        )
+
+        missing = validate_required(data, ["username", "email", "password"])
+        if missing:
+            logger.warning("Signup validation failed request_id=%s missing=%s", request_id, missing)
+            return error_response(f"Missing required fields: {', '.join(missing)}", 400)
+
+        username = data.get("username", "").strip()
+        email = data.get("email", "").strip().lower()
+        password = data.get("password", "")
+        phone = data.get("phone", "").strip()
+
+        if len(username) < 3:
+            logger.warning("Invalid signup username request_id=%s username_length=%s", request_id, len(username))
+            return error_response("Username must be at least 3 characters long", 400)
+
+        if not email or "@" not in email:
+            logger.warning("Invalid signup email request_id=%s email=%s", request_id, email)
+            return error_response("Invalid email address", 400)
+
+        if len(password) < 6:
+            logger.warning("Invalid signup password request_id=%s password_length=%s", request_id, len(password))
+            return error_response("Password must be at least 6 characters long", 400)
+
+        try:
+            db.session.execute(text("SELECT 1"))
+            logger.info("Database health check OK request_id=%s email=%s", request_id, email)
+        except OperationalError as db_err:
+            db.session.rollback()
+            logger.exception("Database connection failed request_id=%s email=%s error=%s", request_id, email, db_err)
+            return error_response("Database connection failed. Please try again later.", 503)
+        except Exception as db_err:
+            db.session.rollback()
+            logger.exception("Unexpected database health check error request_id=%s email=%s error=%s", request_id, email, db_err)
+            return error_response("Database error. Please try again later.", 503)
+
+        try:
+            if User.query.filter_by(email=email).first():
+                logger.warning("Duplicate signup email request_id=%s email=%s", request_id, email)
+                return error_response("This email is already registered. Please login or use a different email.", 409)
+
+            if User.query.filter_by(username=username).first():
+                logger.warning("Duplicate signup username request_id=%s username=%s", request_id, username)
+                return error_response("This username is already taken. Please choose a different one.", 409)
+        except SQLAlchemyError as query_err:
+            db.session.rollback()
+            logger.exception("Duplicate lookup failed request_id=%s email=%s error=%s", request_id, email, query_err)
+            return error_response("Could not verify signup details. Please try again.", 500)
+
+        try:
+            hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
+        except Exception as hash_err:
+            logger.exception("Password hashing failed request_id=%s email=%s error=%s", request_id, email, hash_err)
+            return error_response("Failed to process password. Please try again.", 500)
+
+        try:
+            otp = EmailVerification.create_verification(
+                email=email,
+                username=username,
+                password=hashed_password,
+                phone=phone,
+            )
+            logger.info("Email verification row created request_id=%s email=%s", request_id, email)
+        except IntegrityError as integrity_err:
+            db.session.rollback()
+            logger.exception("Email verification integrity error request_id=%s email=%s error=%s", request_id, email, integrity_err)
+            return error_response("Email verification failed. This email might already be registered.", 409)
+        except ProgrammingError as schema_err:
+            db.session.rollback()
+            logger.exception(
+                "Email verification schema mismatch request_id=%s email=%s. "
+                "Expected columns: username, password, phone. Run flask db upgrade. error=%s",
+                request_id,
+                email,
+                schema_err,
+            )
+            return error_response("Signup storage is not ready. Please contact support.", 500)
+        except SQLAlchemyError as verify_err:
+            db.session.rollback()
+            logger.exception("Email verification database error request_id=%s email=%s error=%s", request_id, email, verify_err)
+            return error_response("Failed to create verification. Please try again.", 500)
+        except Exception as verify_err:
+            db.session.rollback()
+            logger.exception("Email verification unexpected error request_id=%s email=%s error=%s", request_id, email, verify_err)
+            return error_response("Failed to create verification. Please try again.", 500)
+
+        try:
+            mail_server = current_app.config.get("MAIL_SERVER")
+            mail_username = current_app.config.get("MAIL_USERNAME")
+            mail_password = current_app.config.get("MAIL_PASSWORD")
+            mail_sender = current_app.config.get("MAIL_DEFAULT_SENDER") or mail_username
+
+            if not mail_server or not mail_username or not mail_password or not mail_sender:
+                logger.error(
+                    "Mail configuration missing request_id=%s email=%s has_server=%s has_username=%s has_password=%s has_sender=%s",
+                    request_id,
+                    email,
+                    bool(mail_server),
+                    bool(mail_username),
+                    bool(mail_password),
+                    bool(mail_sender),
+                )
+                EmailVerification.query.filter_by(email=email).delete()
+                db.session.commit()
+                return error_response("Email service is not configured. Please contact support.", 503)
+
+            logger.info(
+                "Sending OTP email request_id=%s email=%s mail_server=%s mail_port=%s tls=%s ssl=%s sender=%s",
+                request_id,
+                email,
+                mail_server,
+                current_app.config.get("MAIL_PORT"),
+                current_app.config.get("MAIL_USE_TLS"),
+                current_app.config.get("MAIL_USE_SSL"),
+                mail_sender,
+            )
+
+            html_body = f"""
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#f5f5f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f5;padding:20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:10px;">
+          <tr>
+            <td style="background-color:#8b5a2b;padding:30px;text-align:center;border-radius:10px 10px 0 0;">
+              <h1 style="color:#ffffff;margin:0;font-size:32px;">SANA Sarees</h1>
+              <p style="color:#ffffff;margin:5px 0 0 0;font-size:14px;">Elegant Traditional Wear</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:40px 30px;">
+              <h2 style="color:#333333;margin:0 0 20px 0;font-size:24px;">Welcome to SANA Sarees!</h2>
+              <p style="color:#666666;font-size:16px;line-height:1.6;">Your One-Time Password for email verification is:</p>
+              <div style="text-align:center;margin:30px 0;">
+                <span style="font-size:36px;font-weight:bold;color:#8b5a2b;letter-spacing:8px;">{otp}</span>
+              </div>
+              <p style="color:#999999;font-size:14px;text-align:center;">This OTP will expire in <strong>10 minutes</strong>.</p>
+              <p style="color:#999999;font-size:12px;text-align:center;">If you did not request this, please ignore this email.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+            msg = Message(
+                subject="SANA Sarees - Email Verification",
+                recipients=[email],
+                html=html_body,
+                sender=mail_sender,
+            )
+            mail.send(msg)
+            logger.info("OTP email sent request_id=%s email=%s", request_id, email)
+        except Exception as mail_err:
+            logger.exception(
+                "OTP email send failed request_id=%s email=%s error_type=%s error=%s",
+                request_id,
+                email,
+                type(mail_err).__name__,
+                mail_err,
+            )
+            try:
+                EmailVerification.query.filter_by(email=email).delete()
+                db.session.commit()
+                logger.info("Cleaned verification after mail failure request_id=%s email=%s", request_id, email)
+            except Exception as cleanup_err:
+                db.session.rollback()
+                logger.exception("Mail failure cleanup failed request_id=%s email=%s error=%s", request_id, email, cleanup_err)
+
+            mail_error = str(mail_err)
+            if "SMTP" in mail_error or "Authentication" in mail_error or "Username and Password not accepted" in mail_error:
+                return error_response("Email service authentication failed. Please contact support.", 503)
+            return error_response("Failed to send verification email. Please try again later.", 500)
+
+        logger.info("Signup OTP flow successful request_id=%s email=%s", request_id, email)
+        return success_response(
+            data={"email": email},
+            message="Verification OTP sent to your email. Please check your inbox and spam folder.",
+            status_code=200,
+        )
+
+    except Exception as unexpected_err:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        logger.exception(
+            "Unexpected signup failure request_id=%s email=%s error_type=%s error=%s",
+            request_id,
+            email,
+            type(unexpected_err).__name__,
+            unexpected_err,
+        )
         return error_response("An unexpected error occurred during signup. Please try again later.", 500)
 
 
