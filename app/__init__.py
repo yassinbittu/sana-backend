@@ -1,7 +1,7 @@
 import os
 import sys
 import logging
-from flask import Flask
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
@@ -10,6 +10,7 @@ from flask_bcrypt import Bcrypt
 from flask_mail import Mail
 from flasgger import Swagger
 from dotenv import load_dotenv
+from werkzeug.exceptions import HTTPException
 
 # Add project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -149,22 +150,17 @@ def create_app(config_class=None):
     if app.debug:
         print(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
 
-    # Init extensions
-    db.init_app(app)
-    migrate.init_app(app, db)
-    jwt.init_app(app)
-    bcrypt.init_app(app)
-    mail.init_app(app)
-
-    with app.app_context():
-        from app.services.admin_bootstrap import ensure_admin_user
-
-        ensure_admin_user(app)
-
-    # CORS
+    # CORS: configure before routes and add a manual fallback for error responses.
     allowed_origins = [origin.strip() for origin in app.config["FRONTEND_URL"].split(",") if origin.strip()]
-    if "http://localhost:5173" not in allowed_origins:
-        allowed_origins.append("http://localhost:5173")
+    default_allowed_origins = [
+        "https://www.sanasarees.in",
+        "https://sanasarees.in",
+        "https://sanasarees-olive.vercel.app",
+        "http://localhost:5173",
+    ]
+    for origin in default_allowed_origins:
+        if origin not in allowed_origins:
+            allowed_origins.append(origin)
 
     CORS(app, resources={
         r"/api/*": {
@@ -180,6 +176,49 @@ def create_app(config_class=None):
             "supports_credentials": False,
         }
     })
+
+    @app.after_request
+    def add_cors_headers(response):
+        origin = request.headers.get("Origin")
+        if origin in allowed_origins:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Vary"] = "Origin"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        return response
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(error):
+        app.logger.warning("HTTP error path=%s status=%s error=%s", request.path, error.code, error)
+        return jsonify({
+            "success": False,
+            "message": error.description or "Request failed",
+        }), error.code
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_exception(error):
+        app.logger.exception("Unhandled error path=%s method=%s error=%s", request.path, request.method, error)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify({
+            "success": False,
+            "message": "Internal server error. Please try again later.",
+        }), 500
+
+    # Init extensions
+    db.init_app(app)
+    migrate.init_app(app, db)
+    jwt.init_app(app)
+    bcrypt.init_app(app)
+    mail.init_app(app)
+
+    with app.app_context():
+        from app.services.admin_bootstrap import ensure_admin_user
+
+        ensure_admin_user(app)
 
     # Blueprints
     from app.routes.auth_routes import auth_bp
