@@ -1,18 +1,15 @@
 from flask import request
-from flask_jwt_extended import get_jwt_identity
 from app import db
 from app.models.cart import Cart
 from app.models.product import Product
 from app.utils.helpers import success_response, error_response
 
+GUEST_CART_USER_ID = None
+
 
 def get_cart():
-    """Get all items in user's cart"""
-    user_id = get_jwt_identity()
-    if isinstance(user_id, str):
-        user_id = int(user_id)
-
-    cart_items = Cart.query.filter_by(user_id=user_id).all()
+    """Get all items in guest cart"""
+    cart_items = Cart.query.filter_by(user_id=GUEST_CART_USER_ID).all()
 
     # Calculate totals
     subtotal = sum(item.subtotal for item in cart_items)
@@ -32,10 +29,6 @@ def get_cart():
 
 def add_to_cart():
     """Add product to cart"""
-    user_id = get_jwt_identity()
-    if isinstance(user_id, str):
-        user_id = int(user_id)
-
     data = request.get_json(silent=True) or {}
 
     # Validate required fields
@@ -63,7 +56,10 @@ def add_to_cart():
         return error_response("Product is out of stock")
 
     # Check if item already in cart
-    existing_item = Cart.query.filter_by(user_id=user_id, product_id=product_id).first()
+    existing_item = Cart.query.filter_by(
+        user_id=GUEST_CART_USER_ID,
+        product_id=product_id
+    ).first()
 
     if existing_item:
         # Update quantity
@@ -76,7 +72,7 @@ def add_to_cart():
     else:
         # Create new cart item
         cart_item = Cart(
-            user_id=user_id,
+            user_id=GUEST_CART_USER_ID,
             product_id=product_id,
             quantity=quantity
         )
@@ -91,10 +87,6 @@ def add_to_cart():
 
 def update_cart_item(cart_item_id):
     """Update cart item quantity"""
-    user_id = get_jwt_identity()
-    if isinstance(user_id, str):
-        user_id = int(user_id)
-
     data = request.get_json(silent=True) or {}
 
     if "quantity" not in data:
@@ -109,7 +101,10 @@ def update_cart_item(cart_item_id):
         return error_response("Quantity must be greater than 0")
 
     # Find cart item
-    cart_item = Cart.query.filter_by(id=cart_item_id, user_id=user_id).first()
+    cart_item = Cart.query.filter_by(
+        id=cart_item_id,
+        user_id=GUEST_CART_USER_ID
+    ).first()
     if not cart_item:
         return error_response("Cart item not found", 404)
 
@@ -129,11 +124,10 @@ def update_cart_item(cart_item_id):
 
 def remove_from_cart(cart_item_id):
     """Remove item from cart"""
-    user_id = get_jwt_identity()
-    if isinstance(user_id, str):
-        user_id = int(user_id)
-
-    cart_item = Cart.query.filter_by(id=cart_item_id, user_id=user_id).first()
+    cart_item = Cart.query.filter_by(
+        id=cart_item_id,
+        user_id=GUEST_CART_USER_ID
+    ).first()
     if not cart_item:
         return error_response("Cart item not found", 404)
 
@@ -144,12 +138,8 @@ def remove_from_cart(cart_item_id):
 
 
 def clear_cart():
-    """Remove all items from user's cart"""
-    user_id = get_jwt_identity()
-    if isinstance(user_id, str):
-        user_id = int(user_id)
-
-    Cart.query.filter_by(user_id=user_id).delete()
+    """Remove all items from guest cart"""
+    Cart.query.filter_by(user_id=GUEST_CART_USER_ID).delete()
     db.session.commit()
 
     return success_response(message="Cart cleared successfully")
@@ -157,10 +147,6 @@ def clear_cart():
 
 def get_cart_count():
     """Get total number of items in cart"""
-    user_id = get_jwt_identity()
-    if isinstance(user_id, str):
-        user_id = int(user_id)
-
-    count = Cart.query.filter_by(user_id=user_id).count()
+    count = Cart.query.filter_by(user_id=GUEST_CART_USER_ID).count()
 
     return success_response(data={"count": count})

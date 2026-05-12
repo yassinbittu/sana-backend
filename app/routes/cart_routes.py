@@ -1,20 +1,16 @@
 from flask import Blueprint
 from app.controllers import cart_controller
-from app.middleware.auth_middleware import jwt_required_custom
 
 cart_bp = Blueprint("cart", __name__)
 
 
 @cart_bp.get("")
-@jwt_required_custom
 def get_cart():
     """
-    Get user's cart
+    Get guest cart
     ---
     tags:
       - Cart
-    security:
-      - Bearer: []
     responses:
       200:
         description: Cart items retrieved successfully
@@ -77,22 +73,17 @@ def get_cart():
                     total:
                       type: number
                       example: 8549.97
-      401:
-        description: Unauthorized
     """
     return cart_controller.get_cart()
 
 
 @cart_bp.post("/add")
-@jwt_required_custom
 def add_to_cart():
     """
     Add product to cart
     ---
     tags:
       - Cart
-    security:
-      - Bearer: []
     parameters:
       - in: body
         name: body
@@ -174,8 +165,6 @@ def add_to_cart():
                       example: 1
       400:
         description: Bad request
-      401:
-        description: Unauthorized
       404:
         description: Product not found
     """
@@ -183,15 +172,12 @@ def add_to_cart():
 
 
 @cart_bp.put("/item/<int:cart_item_id>")
-@jwt_required_custom
 def update_cart_item(cart_item_id):
     """
     Update cart item quantity
     ---
     tags:
       - Cart
-    security:
-      - Bearer: []
     parameters:
       - in: path
         name: cart_item_id
@@ -236,8 +222,6 @@ def update_cart_item(cart_item_id):
                       example: 8999.97
       400:
         description: Bad request
-      401:
-        description: Unauthorized
       404:
         description: Cart item not found
     """
@@ -245,15 +229,12 @@ def update_cart_item(cart_item_id):
 
 
 @cart_bp.delete("/item/<int:cart_item_id>")
-@jwt_required_custom
 def remove_from_cart(cart_item_id):
     """
     Remove item from cart
     ---
     tags:
       - Cart
-    security:
-      - Bearer: []
     parameters:
       - in: path
         name: cart_item_id
@@ -272,8 +253,6 @@ def remove_from_cart(cart_item_id):
             message:
               type: string
               example: "Item removed from cart successfully"
-      401:
-        description: Unauthorized
       404:
         description: Cart item not found
     """
@@ -281,15 +260,12 @@ def remove_from_cart(cart_item_id):
 
 
 @cart_bp.delete("/clear")
-@jwt_required_custom
 def clear_cart():
     """
     Clear all items from cart
     ---
     tags:
       - Cart
-    security:
-      - Bearer: []
     responses:
       200:
         description: Cart cleared successfully
@@ -302,22 +278,17 @@ def clear_cart():
             message:
               type: string
               example: "Cart cleared successfully"
-      401:
-        description: Unauthorized
     """
     return cart_controller.clear_cart()
 
 
 @cart_bp.get("/count")
-@jwt_required_custom
 def get_cart_count():
     """
     Get cart item count
     ---
     tags:
       - Cart
-    security:
-      - Bearer: []
     responses:
       200:
         description: Cart count retrieved
@@ -333,7 +304,5 @@ def get_cart_count():
                 count:
                   type: integer
                   example: 5
-      401:
-        description: Unauthorized
     """
     return cart_controller.get_cart_count()
